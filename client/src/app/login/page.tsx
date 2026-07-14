@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import api from '@/lib/api';
+import axios from 'axios';
 import { Loader2, KeyRound, Sparkles, User, ShieldCheck } from 'lucide-react';
 
 export default function LoginPage() {
@@ -43,12 +44,13 @@ export default function LoginPage() {
         const { token, user } = response.data;
         login(token, user);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Demo login session failed:', err);
-      setError(
-        err.response?.data?.message || 
-        'Could not log in with demo account. Ensure you have seeded the database.'
-      );
+      let errMsg = 'Could not log in with demo account. Ensure you have seeded the database.';
+      if (axios.isAxiosError(err)) {
+        errMsg = err.response?.data?.message || errMsg;
+      }
+      setError(errMsg);
     } finally {
       setLoading(false);
     }
@@ -76,12 +78,13 @@ export default function LoginPage() {
         const { token, user } = response.data;
         login(token, user);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Login action failed:', err);
-      setError(
-        err.response?.data?.message || 
-        'Incorrect email or password. Please try again.'
-      );
+      let errMsg = 'Incorrect email or password. Please try again.';
+      if (axios.isAxiosError(err)) {
+        errMsg = err.response?.data?.message || errMsg;
+      }
+      setError(errMsg);
     } finally {
       setLoading(false);
     }

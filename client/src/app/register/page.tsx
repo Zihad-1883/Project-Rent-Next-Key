@@ -1,10 +1,11 @@
 'use client';
 
+import axios from 'axios';
+import { User, Shield, Loader2, Sparkles } from 'lucide-react';
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import api from '@/lib/api';
-import { User, Shield, Loader2, Sparkles } from 'lucide-react';
 
 export default function RegisterPage() {
   const { login } = useAuth();
@@ -56,12 +57,13 @@ export default function RegisterPage() {
         const { token, user } = response.data;
         login(token, user);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Registration failed:', err);
-      setError(
-        err.response?.data?.message || 
-        'Registration failed. Please check your credentials and try again.'
-      );
+      let errMsg = 'Registration failed. Please check your credentials and try again.';
+      if (axios.isAxiosError(err)) {
+        errMsg = err.response?.data?.message || errMsg;
+      }
+      setError(errMsg);
     } finally {
       setLoading(false);
     }
