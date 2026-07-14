@@ -24,6 +24,11 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Root welcome message
+app.get('/', (req, res) => {
+  res.status(200).send('Welcome to the Rent Nest / NextKey Backend API Server! Visit /api/health for server status.');
+});
+
 async function startServer() {
   try {
     // Attempt database connection on startup
