@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Navbar from '@/components/Navbar';
@@ -8,7 +8,7 @@ import api from '@/lib/api';
 import axios from 'axios';
 import { 
   Loader2, MapPin, BedDouble, Bath, Home, ArrowLeft, Mail, 
-  ShieldAlert, CheckCircle2, Calendar, MessageSquare, AlertCircle
+  ShieldAlert, CheckCircle2, Calendar, MessageSquare, AlertCircle, Star
 } from 'lucide-react';
 
 interface LandlordInfo {
@@ -31,6 +31,14 @@ interface PropertyDetails {
   landlord: LandlordInfo | null;
 }
 
+interface ReviewItem {
+  id: string;
+  tenantName: string;
+  rating: number;
+  comment: string;
+  createdAt: string;
+}
+
 export default function PropertyDetailsPage() {
   const { id } = useParams();
   const { user } = useAuth();
@@ -40,12 +48,35 @@ export default function PropertyDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Rental request form inputs
+  // Reviews States
+  const [reviews, setReviews] = useState<ReviewItem[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(true);
+  const [newRating, setNewRating] = useState(5);
+  const [newComment, setNewComment] = useState('');
+  const [submitReviewLoading, setSubmitReviewLoading] = useState(false);
+  const [submitReviewError, setSubmitReviewError] = useState<string | null>(null);
+
+  // Rental Request form states
   const [startDate, setStartDate] = useState('');
-  const [message, setMessage] = useState('');
+  const [contactNo, setContactNo] = useState('');
   const [requestLoading, setRequestLoading] = useState(false);
   const [requestSuccess, setRequestSuccess] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
+
+  const fetchReviews = useCallback(async () => {
+    if (!id || typeof id !== 'string') return;
+    setReviewsLoading(true);
+    try {
+      const response = await api.get(`/reviews/property/${id}`);
+      if (response.data.success) {
+        setReviews(response.data.reviews || []);
+      }
+    } catch (err) {
+      console.error('Failed to load reviews:', err);
+    } finally {
+      setReviewsLoading(false);
+    }
+  }, [id]);
 
   useEffect(() => {
     if (!id || typeof id !== 'string') return;
@@ -71,7 +102,8 @@ export default function PropertyDetailsPage() {
     };
 
     fetchDetails();
-  }, [id]);
+    fetchReviews();
+  }, [id, fetchReviews]);
 
   const handleRequestRental = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,7 +118,7 @@ export default function PropertyDetailsPage() {
     }
 
     if (!startDate) {
-      setRequestError('Please select a target moving date.');
+      setRequestError('Please select a target move-in date.');
       return;
     }
 
@@ -95,20 +127,20 @@ export default function PropertyDetailsPage() {
     setRequestSuccess(false);
 
     try {
-      // POST Request for Phase 6 endpoints
-      const response = await api.post('/bookings', {
+      // POST Request for Phase 6 Rental endpoint
+      const response = await api.post('/rentals', {
         propertyId: id,
-        moveInDate: startDate,
-        personalMessage: message.trim() || `Hi, I am interested in renting your property located at ${property?.location}.`,
+        startDate: startDate,
+        contactNumber: contactNo.trim() || user.email,
       });
 
       if (response.data.success) {
         setRequestSuccess(true);
-        setMessage('');
+        setContactNo('');
         setStartDate('');
       }
     } catch (err) {
-      console.error('Failed to submit booking request:', err);
+      console.error('Failed to submit rental request:', err);
       let errMsg = 'Failed to submit rental request. Please try again.';
       if (axios.isAxiosError(err)) {
         errMsg = err.response?.data?.message || errMsg;
@@ -117,6 +149,82 @@ export default function PropertyDetailsPage() {
     } finally {
       setRequestLoading(false);
     }
+  };
+
+  const handleSubmitReview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+
+    if (user.role !== 'tenant') {
+      setSubmitReviewError('Only Tenants are allowed to submit rating reviews.');
+      return;
+    }
+
+    if (!newComment.trim()) {
+      setSubmitReviewError('Review description feedback cannot be empty.');
+      return;
+    }
+
+    setSubmitReviewLoading(true);
+    setSubmitReviewError(null);
+
+    try {
+      const response = await api.post('/reviews', {
+        propertyId: id,
+        rating: newRating,
+        comment: newComment.trim(),
+      });
+
+      if (response.data.success) {
+        setNewComment('');
+        setNewRating(5);
+        fetchReviews(); // Refresh review lists
+      }
+    } catch (err) {
+      console.error('Failed to post review:', err);
+      let errMsg = 'Failed to submit content review.';
+      if (axios.isAxiosError(err)) {
+        errMsg = err.response?.data?.message || errMsg;
+      }
+      setSubmitReviewError(errMsg);
+    } finally {
+      setSubmitReviewLoading(false);
+    }
+  };
+
+  // Helper to draw star icons
+  const renderStars = (rating: number, interactive = false, onSelect?: (r: number) => void) => {
+    return (
+      <div className="flex items-center gap-0.5">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <button
+            key={star}
+            type="button"
+            disabled={!interactive}
+            onClick={() => onSelect && onSelect(star)}
+            className={`${interactive ? 'cursor-pointer hover:scale-110 transition-transform' : ''}`}
+          >
+            <Star
+              className={`w-4 h-4 ${
+                star <= rating
+                  ? 'fill-amber-400 text-amber-400'
+                  : 'text-slate-200 fill-slate-200'
+              }`}
+            />
+          </button>
+        ))}
+      </div>
+    );
+  };
+
+  // Get average rating
+  const getAverageRating = () => {
+    if (reviews.length === 0) return 0;
+    const sum = reviews.reduce((acc, r) => acc + r.rating, 0);
+    return (sum / reviews.length).toFixed(1);
   };
 
   if (loading) {
@@ -181,7 +289,7 @@ export default function PropertyDetailsPage() {
 
         {/* Contents Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left Column: Specifications Gallery */}
+          {/* Left Column: Specifications Gallery & Reviews */}
           <div className="lg:col-span-2 space-y-8">
             <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm">
               <h1 className="text-3xl font-extrabold text-slate-900 font-display sm:leading-tight">
@@ -247,6 +355,110 @@ export default function PropertyDetailsPage() {
                 ))}
               </div>
             </div>
+
+            {/* Reviews Section */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900 font-display">Tenant Feedback & Reviews</h3>
+                  <p className="text-xs text-slate-450 font-medium">Read remarks from former/current leasing tenants</p>
+                </div>
+                {reviews.length > 0 && (
+                  <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 px-3.5 py-1.5 rounded-xl self-start sm:self-auto">
+                    <span className="font-extrabold text-sm text-indigo-700">{getAverageRating()}</span>
+                    {renderStars(Math.round(Number(getAverageRating())))}
+                    <span className="text-[10px] text-indigo-550 font-bold">({reviews.length})</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Review submit form */}
+              {user ? (
+                user.role === 'tenant' ? (
+                  <form onSubmit={handleSubmitReview} className="bg-slate-50 border border-slate-200/90 rounded-2xl p-5 space-y-4">
+                    <h4 className="font-bold text-xs uppercase text-slate-500 tracking-wider">Leave a Review</h4>
+                    {submitReviewError && (
+                      <div className="p-3 bg-rose-50 border border-rose-100 rounded-xl text-xs text-rose-650 flex items-start gap-1.5">
+                        <AlertCircle className="w-4 h-4 text-rose-500 mt-0.5 flex-shrink-0" />
+                        <span>{submitReviewError}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 text-xs text-slate-650 font-bold">
+                      <span>Rating Score:</span>
+                      {renderStars(newRating, true, setNewRating)}
+                    </div>
+                    <div>
+                      <textarea
+                        rows={3}
+                        required
+                        value={newComment}
+                        onChange={(e) => setNewComment(e.target.value)}
+                        placeholder="Write down details on ventilation, space features, water supply details..."
+                        className="appearance-none block w-full px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-650/15 text-xs text-slate-800 bg-white"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={submitReviewLoading}
+                      className="px-4 py-2 bg-indigo-650 hover:bg-indigo-750 text-white font-bold text-xs rounded-xl shadow-sm cursor-pointer transition-colors"
+                    >
+                      {submitReviewLoading ? 'Submitting...' : 'Post Review'}
+                    </button>
+                  </form>
+                ) : (
+                  <div className="bg-amber-50/50 border border-amber-100 p-4 rounded-xl text-xs text-amber-700 font-semibold">
+                    * Landlord accounts are locked from posting reviews on rental listings.
+                  </div>
+                )
+              ) : (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center space-y-2">
+                  <p className="text-xs text-slate-500 font-medium">Logged-in tenants can write rating reviews of this property.</p>
+                  <button
+                    onClick={() => router.push('/login')}
+                    className="px-4 py-1.5 bg-indigo-50 hover:bg-slate-200 text-indigo-700 font-bold text-xs rounded-lg transition-colors cursor-pointer"
+                  >
+                    Log In / Sign In
+                  </button>
+                </div>
+              )}
+
+              {/* Feed lists */}
+              {reviewsLoading ? (
+                <div className="flex items-center justify-center py-6 text-slate-400 gap-1.5">
+                  <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+                  <span className="text-xs font-semibold">Loading reviews...</span>
+                </div>
+              ) : reviews.length === 0 ? (
+                <div className="text-center py-8 text-slate-400 text-xs italic">
+                  No ratings review posted yet. Be the first to leave a feedback on this property!
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {reviews.map((rev) => (
+                    <div key={rev.id} className="border-b border-slate-100 pb-4 last:border-b-0 space-y-2">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-xs font-bold text-indigo-600">
+                            {rev.tenantName.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <span className="font-bold text-slate-800 text-xs">{rev.tenantName}</span>
+                            <span className="block text-[9px] text-slate-400">Verified Tenant</span>
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end">
+                          {renderStars(rev.rating)}
+                          <span className="text-[9px] text-slate-400 mt-0.5">
+                            {new Date(rev.createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-slate-650 text-xs pl-9 leading-relaxed">{rev.comment}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Right Column: Landlord Card & Booking Request Form */}
@@ -296,26 +508,26 @@ export default function PropertyDetailsPage() {
                           required
                           value={startDate}
                           onChange={(e) => setStartDate(e.target.value)}
-                          className="appearance-none block w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-650/15 text-slate-800 text-xs bg-white"
+                          className="appearance-none block w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-650/15 text-slate-808 text-xs bg-white"
                         />
                       </div>
                     </div>
 
                     <div>
-                      <label htmlFor="message" className="block text-xs font-bold text-slate-650 mb-1">
-                        Message to Landlord (Optional)
+                      <label htmlFor="contactNo" className="block text-xs font-bold text-slate-650 mb-1">
+                        Phone Contact Number
                       </label>
                       <div className="relative mt-1">
-                        <div className="absolute inset-y-0 left-0 pl-3.5 pt-2.5 flex items-start pointer-events-none text-slate-450">
-                          <MessageSquare className="w-4 h-4" />
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                          <Mail className="w-4 h-4 text-slate-400" />
                         </div>
-                        <textarea
-                          id="message"
-                          rows={3}
-                          value={message}
-                          onChange={(e) => setMessage(e.target.value)}
-                          placeholder="Introduce yourself, describe occupation, proposed term duration..."
-                          className="appearance-none block w-full pl-10 pr-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-655/15 text-slate-805 text-xs bg-white"
+                        <input
+                          id="contactNo"
+                          type="tel"
+                          value={contactNo}
+                          onChange={(e) => setContactNo(e.target.value)}
+                          placeholder="e.g. +880 1712-XXXXXX"
+                          className="appearance-none block w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-650/15 text-slate-808 text-xs bg-white"
                         />
                       </div>
                     </div>
@@ -352,7 +564,7 @@ export default function PropertyDetailsPage() {
             </div>
 
             {/* Landlord Contact board details */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm">
+            <div className="bg-white rounded-2xl border border-slate-205 p-6 sm:p-8 shadow-sm">
               <h3 className="text-xs uppercase font-extrabold tracking-widest text-slate-400 mb-4">Listed Landlord</h3>
               {property.landlord ? (
                 <div className="flex flex-col gap-4">
@@ -375,7 +587,7 @@ export default function PropertyDetailsPage() {
                   </a>
                 </div>
               ) : (
-                <div className="text-xs text-slate-450 font-medium italic">
+                <div className="text-xs text-slate-455 font-medium italic">
                   Landlord coordinates withheld or deleted.
                 </div>
               )}
