@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
-import api from '@/lib/api';
+import api, { getCached, setCached } from '@/lib/api';
 import PropertyCard, { PropertyCardSkeleton } from '@/components/PropertyCard';
 import { 
   Building2, Search, ArrowRight, Home as HomeIcon, Key, ShieldCheck, 
@@ -63,12 +63,21 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const CACHE_KEY = 'home:latest';
     const fetchLatest = async () => {
+      // Return cached result instantly if still fresh
+      const cached = getCached<{ properties: Property[] }>(CACHE_KEY);
+      if (cached) {
+        setLatestListings(cached.properties);
+        setListingsLoading(false);
+        return;
+      }
       setListingsLoading(true);
       try {
         const response = await api.get('/properties?limit=4');
         if (response.data.success) {
           setLatestListings(response.data.properties);
+          setCached(CACHE_KEY, response.data);
         }
       } catch (err) {
         console.error('Failed to query cover listings:', err);
@@ -133,13 +142,13 @@ export default function Home() {
       <section className="relative w-full min-h-[520px] sm:min-h-[620px] overflow-hidden bg-slate-900 text-white flex items-center justify-center">
         {/* Background images loop */}
         {HERO_SLIDES.map((slide, idx) => (
-          <div
+          <motion.div
             key={idx}
             className="hero-slide"
-            style={{
-              backgroundImage: `url(${slide})`,
-              opacity: idx === activeSlide ? 0.35 : 0,
-            }}
+            style={{ backgroundImage: `url(${slide})` }}
+            initial={false}
+            animate={{ opacity: idx === activeSlide ? 0.38 : 0 }}
+            transition={{ duration: 1.5, ease: 'easeInOut' }}
           />
         ))}
 

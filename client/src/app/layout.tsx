@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Outfit, Inter } from "next/font/google";
 import { AuthProvider } from "@/context/AuthContext";
 import { Toaster } from "react-hot-toast";
+import ServerPing from "@/components/ServerPing";
 import "./globals.css";
 
 const outfit = Outfit({
@@ -39,6 +40,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col font-sans bg-slate-50 text-slate-700">
         <AuthProvider>
+          <ServerPing />
           {children}
           <Toaster 
             position="top-right" 

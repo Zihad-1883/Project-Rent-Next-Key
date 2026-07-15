@@ -45,15 +45,12 @@ button, a {
 }
 
 /* 
-  Hero slideshow background: smooth cross-fade between slides.
-  We use a dedicated class so the 1s duration isn't overridden 
-  by any other transition utilities on the element.
+  Hero slideshow background layers.
+  Opacity is animated by Framer Motion — do not add CSS transition here.
 */
 .hero-slide {
   position: absolute;
   inset: 0;
   background-size: cover;
   background-position: center;
-  will-change: opacity;
-  transition: opacity 1s ease-in-out;
 }

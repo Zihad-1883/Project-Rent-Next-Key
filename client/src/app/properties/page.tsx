@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from '@/components/Navbar';
 import PropertyCard, { PropertyCardSkeleton, PropertyListItem } from '@/components/PropertyCard';
-import api from '@/lib/api';
+import api, { getCached, setCached } from '@/lib/api';
 import axios from 'axios';
 import { Search, SlidersHorizontal, ChevronLeft, ChevronRight, RotateCcw, X, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -13,10 +13,16 @@ export default function ExplorePropertiesPage() {
   const [search, setSearch] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
   const [propertyType, setPropertyType] = useState('All');
+  // Raw input states (what the user types)
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
   const [bedrooms, setBedrooms] = useState('');
   const [bathrooms, setBathrooms] = useState('');
+  // Debounced states (what actually triggers the API call — 400ms after typing stops)
+  const [debouncedMinPrice, setDebouncedMinPrice] = useState('');
+  const [debouncedMaxPrice, setDebouncedMaxPrice] = useState('');
+  const [debouncedBedrooms, setDebouncedBedrooms] = useState('');
+  const [debouncedBathrooms, setDebouncedBathrooms] = useState('');
   const [sortOption, setSortOption] = useState('createdAt:desc');
   const [page, setPage] = useState(1);
 
@@ -36,56 +42,69 @@ export default function ExplorePropertiesPage() {
     return { sortBy: field, sortOrder: order };
   };
 
-  // Load properties on filter change (debounced or triggered on page/options change)
+  // 400ms debounce for text/number inputs that shouldn't fire on every keystroke
+  useEffect(() => { const t = setTimeout(() => setDebouncedMinPrice(minPrice), 400); return () => clearTimeout(t); }, [minPrice]);
+  useEffect(() => { const t = setTimeout(() => setDebouncedMaxPrice(maxPrice), 400); return () => clearTimeout(t); }, [maxPrice]);
+  useEffect(() => { const t = setTimeout(() => setDebouncedBedrooms(bedrooms), 400); return () => clearTimeout(t); }, [bedrooms]);
+  useEffect(() => { const t = setTimeout(() => setDebouncedBathrooms(bathrooms), 400); return () => clearTimeout(t); }, [bathrooms]);
+
+  // Load properties — cancels in-flight requests when deps change, uses 60s cache
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
+
     const loadListings = async () => {
+      const { sortBy, sortOrder } = getSortParams(sortOption);
+      const params: Record<string, string | number> = {
+        page,
+        limit: 8,
+        sortBy,
+        sortOrder,
+      };
+      if (appliedSearch.trim()) params.search = appliedSearch.trim();
+      if (propertyType !== 'All') params.propertyType = propertyType;
+      if (debouncedMinPrice.trim()) params.minPrice = debouncedMinPrice;
+      if (debouncedMaxPrice.trim()) params.maxPrice = debouncedMaxPrice;
+      if (debouncedBedrooms) params.bedrooms = debouncedBedrooms;
+      if (debouncedBathrooms) params.bathrooms = debouncedBathrooms;
+
+      // Build a deterministic cache key from the params
+      const cacheKey = `properties:${JSON.stringify(params)}`;
+      const cached = getCached<{ properties: PropertyListItem[]; pagination: { pages: number; total: number } }>(cacheKey);
+      if (cached) {
+        setProperties(cached.properties);
+        setTotalPages(cached.pagination.pages || 1);
+        setTotalItems(cached.pagination.total || 0);
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       setError(null);
       try {
-        const { sortBy, sortOrder } = getSortParams(sortOption);
-        const params: Record<string, string | number> = {
-          page,
-          limit: 8, // Showing 8 items per page for columns layout matching desktop heights
-          sortBy,
-          sortOrder,
-        };
-
-        if (appliedSearch.trim()) params.search = appliedSearch.trim();
-        if (propertyType !== 'All') params.propertyType = propertyType;
-        if (minPrice.trim()) params.minPrice = minPrice;
-        if (maxPrice.trim()) params.maxPrice = maxPrice;
-        if (bedrooms) params.bedrooms = bedrooms;
-        if (bathrooms) params.bathrooms = bathrooms;
-
-        const response = await api.get('/properties', { params });
-        if (active && response.data.success) {
+        const response = await api.get('/properties', {
+          params,
+          signal: controller.signal, // cancel if deps change before response
+        });
+        if (response.data.success) {
           setProperties(response.data.properties);
           setTotalPages(response.data.pagination.pages || 1);
           setTotalItems(response.data.pagination.total || 0);
+          setCached(cacheKey, response.data);
         }
       } catch (err) {
+        if (axios.isCancel(err)) return; // ignore aborted requests
         console.error('Failed to load properties catalog:', err);
-        let errMsg = 'Could not load properties catalog. Please try again.';
-        if (axios.isAxiosError(err)) {
-          errMsg = err.response?.data?.message || errMsg;
-        }
-        if (active) {
-          setError(errMsg);
-        }
+        let errMsg = 'Could not load properties. Please try again.';
+        if (axios.isAxiosError(err)) errMsg = err.response?.data?.message || errMsg;
+        setError(errMsg);
       } finally {
-        if (active) {
-          setLoading(false);
-        }
+        setLoading(false);
       }
     };
 
     loadListings();
-
-    return () => {
-      active = false;
-    };
-  }, [page, sortOption, propertyType, bedrooms, bathrooms, appliedSearch, minPrice, maxPrice]);
+    return () => controller.abort();
+  }, [page, sortOption, propertyType, debouncedBedrooms, debouncedBathrooms, appliedSearch, debouncedMinPrice, debouncedMaxPrice]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
