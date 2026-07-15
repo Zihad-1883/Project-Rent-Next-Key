@@ -4,6 +4,8 @@ import dotenv from 'dotenv';
 import { connectToDatabase } from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
 import propertyRoutes from './routes/propertyRoutes.js';
+import rentalRoutes from './routes/rentalRoutes.js';
+import reviewRoutes from './routes/reviewRoutes.js';
 
 dotenv.config();
 
@@ -20,6 +22,8 @@ app.use(express.json());
 // Mount API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/properties', propertyRoutes);
+app.use('/api/rentals', rentalRoutes);
+app.use('/api/reviews', reviewRoutes);
 
 // Server health check
 app.get('/api/health', (req, res) => {
